@@ -1,12 +1,12 @@
 use std::{iter::Peekable, str::CharIndices};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Kind<'src> {
     CloseParen,
     False,
     Identifier(&'src str),
     If,
-    Int(i32),
+    Int(&'src str),
     Let,
     Nil,
     OpenParen,
@@ -14,7 +14,7 @@ pub enum Kind<'src> {
     True,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Token<'src> {
     pub kind: Kind<'src>,
     pub line: usize,
@@ -69,26 +69,11 @@ impl<'src> Iterator for Tokens<'src> {
                 '(' => Kind::OpenParen,
                 ')' => Kind::CloseParen,
                 '|' => Kind::Pipe,
-                _ if c.is_ascii_digit()
-                    || c == '-' && self.chars.peek().map_or(false, |(_, c)| c.is_ascii_digit()) =>
-                {
-                    let (mut j, mut c) = (i, c);
-                    while self.chars.peek().map_or(false, |(_, c)| c.is_ascii_digit()) {
-                        // safe to unwrap because we just peeked
-                        (j, c) = self.next_char().unwrap();
-                    }
-                    j += c.len_utf8();
-                    // safe to unwrap because we've checked the number matches -?[0-9]+
-                    // TODO what if it's too big?
-                    Kind::Int(self.src[i..j].parse().unwrap())
-                }
                 _ => {
                     let (mut j, mut c) = (i, c);
-                    while self
-                        .chars
-                        .peek()
-                        .map_or(false, |(_, c)| is_identifier_char(*c))
-                    {
+                    while self.chars.peek().map_or(false, |(_, c)| {
+                        !(*c == '(' || *c == ')' || *c == '|' || c.is_whitespace())
+                    }) {
                         // safe to unwrap because we just peeked
                         (j, c) = self.next_char().unwrap();
                     }
@@ -99,6 +84,7 @@ impl<'src> Iterator for Tokens<'src> {
                         "let" => Kind::Let,
                         "nil" => Kind::Nil,
                         "true" => Kind::True,
+                        s if s.parse::<i32>().is_ok() => Kind::Int(s),
                         s => Kind::Identifier(s),
                     }
                 }
@@ -106,8 +92,4 @@ impl<'src> Iterator for Tokens<'src> {
             Token { kind, line, col }
         })
     }
-}
-
-fn is_identifier_char(c: char) -> bool {
-    !(c == '(' || c == ')' || c == '|' || c.is_whitespace())
 }

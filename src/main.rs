@@ -1,4 +1,7 @@
+mod code;
 mod token;
+mod value;
+mod vm;
 
 fn main() {
     println!(

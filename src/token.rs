@@ -4,7 +4,6 @@ use std::{iter::Peekable, str::CharIndices};
 pub enum Kind<'src> {
     CloseParen,
     False,
-    Identifier(&'src str),
     If,
     Int(&'src str),
     Let,
@@ -12,6 +11,7 @@ pub enum Kind<'src> {
     OpenParen,
     Pipe,
     True,
+    Var(&'src str),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -85,7 +85,7 @@ impl<'src> Iterator for Tokens<'src> {
                         "nil" => Kind::Nil,
                         "true" => Kind::True,
                         s if s.parse::<i32>().is_ok() => Kind::Int(s),
-                        s => Kind::Identifier(s),
+                        s => Kind::Var(s),
                     }
                 }
             };

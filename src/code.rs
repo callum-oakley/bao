@@ -8,14 +8,16 @@ use crate::{
 #[derive(Debug)]
 pub enum Op {
     Constant(u16),
+    Done,
     False,
     Jump(u16),
     JumpIfFalse(u16),
     Nil,
     Pop,
-    Return,
+    Squash,
     True,
     Unreachable,
+    Var(u16),
 }
 
 #[derive(Debug)]
@@ -26,19 +28,28 @@ pub struct Chunk<'src> {
     pub debug_info: Vec<Option<Token<'src>>>,
 }
 
+#[derive(Debug)]
+struct State<'src> {
+    tokens: Peekable<Tokens<'src>>,
+    vars: Vec<&'src str>,
+}
+
 impl<'src> Chunk<'src> {
     pub fn new(tokens: Tokens<'src>) -> Self {
-        let mut tokens = tokens.peekable();
         let mut chunk = Chunk {
             code: Vec::new(),
             constants: Vec::new(),
             debug_info: Vec::new(),
         };
-        chunk.block(&mut tokens);
-        if !tokens.next().is_none() {
+        let mut state = State {
+            tokens: tokens.peekable(),
+            vars: Vec::new(),
+        };
+        chunk.block(&mut state);
+        if !state.tokens.next().is_none() {
             todo!()
         }
-        chunk.push(Op::Return, None);
+        chunk.push(Op::Done, None);
         chunk
     }
 
@@ -55,8 +66,30 @@ impl<'src> Chunk<'src> {
         self.push(Op::Constant(i), token)
     }
 
-    fn expression(&mut self, tokens: &mut Peekable<Tokens<'src>>) {
-        if let Some(token) = tokens.next() {
+    fn resolve_var(&mut self, state: &mut State<'src>, name: &'src str) -> u16 {
+        let mut i = state.vars.len() - 1;
+        loop {
+            if state.vars[i] == name {
+                return i.try_into().unwrap();
+            }
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+        }
+        todo!()
+    }
+
+    fn identifier(&mut self, state: &mut State<'src>) -> &'src str {
+        if let Kind::Var(name) = state.tokens.next().unwrap().kind {
+            name
+        } else {
+            todo!()
+        }
+    }
+
+    fn expression(&mut self, state: &mut State<'src>) {
+        if let Some(token) = state.tokens.next() {
             match token.kind {
                 Kind::Nil => {
                     self.push(Op::Nil, Some(token));
@@ -71,34 +104,45 @@ impl<'src> Chunk<'src> {
                     self.push_constant(Value::Int(s.parse().unwrap()), Some(token));
                 }
                 Kind::If => {
-                    self.block(tokens); // test
+                    self.block(state); // test
                     let jump_over_then = self.push(Op::Unreachable, Some(token));
                     self.push(Op::Pop, Some(token)); // pop result of test
-                    self.block(tokens); // then
+                    self.block(state); // then
                     let jump_over_else = self.push(Op::Unreachable, Some(token));
                     self.code[jump_over_then] =
                         Op::JumpIfFalse((self.code.len() - jump_over_then).try_into().unwrap());
                     self.push(Op::Pop, Some(token)); // pop result of test
-                    self.block(tokens); // else
+                    self.block(state); // else
                     self.code[jump_over_else] =
                         Op::Jump((self.code.len() - jump_over_else).try_into().unwrap());
+                }
+                Kind::Let => {
+                    let name = self.identifier(state);
+                    state.vars.push(name);
+                    self.block(state);
+                    self.block(state);
+                    state.vars.pop();
+                    self.push(Op::Squash, Some(token));
+                }
+                Kind::Var(name) => {
+                    let i = self.resolve_var(state, name);
+                    self.push(Op::Var(i), Some(token));
                 }
                 _ => todo!(),
             }
         }
     }
 
-    fn block(&mut self, tokens: &mut Peekable<Tokens<'src>>) {
-        if let Some(token) = tokens.peek() {
-            let col = token.col;
-            self.expression(tokens);
-            while let Some(token) = tokens.peek() {
-                if token.col != col {
-                    break;
-                }
-                self.push(Op::Pop, None);
-                self.expression(tokens);
+    fn block(&mut self, state: &mut State<'src>) {
+        let token = state.tokens.peek().unwrap();
+        let col = token.col;
+        self.expression(state);
+        while let Some(token) = state.tokens.peek() {
+            if token.col != col {
+                break;
             }
+            self.push(Op::Pop, None);
+            self.expression(state);
         }
     }
 }

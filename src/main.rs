@@ -6,6 +6,13 @@ mod vm;
 fn main() {
     println!(
         "{:?}",
-        vm::VM::new(code::Chunk::new(token::Tokens::new("if false 42 -5"))).run()
+        vm::VM::new(code::Chunk::new(token::Tokens::new(
+            "
+            let a 1
+            let a 22
+              a
+            a"
+        )))
+        .run()
     );
 }

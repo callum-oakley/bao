@@ -1,9 +1,13 @@
-#[derive(Debug, Clone, Copy)]
+use std::rc::Rc;
+
+#[derive(Debug, Clone)]
 pub enum Value {
+    Nil,
     Bool(bool),
     Int(i32),
-    Nil,
+    String(Rc<String>),
 }
+
 impl Value {
     pub fn is_falsey(&self) -> bool {
         match self {

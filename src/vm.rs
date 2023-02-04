@@ -26,8 +26,8 @@ impl<'src> VM<'src> {
                 Op::Nil => self.stack.push(Value::Nil),
                 Op::False => self.stack.push(Value::Bool(false)),
                 Op::True => self.stack.push(Value::Bool(true)),
-                Op::Constant(i) => self.stack.push(self.chunk.constants[i as usize]),
-                Op::Var(i) => self.stack.push(self.stack[i as usize]),
+                Op::Constant(i) => self.stack.push(self.chunk.constants[i as usize].clone()),
+                Op::Var(i) => self.stack.push(self.stack[i as usize].clone()),
                 Op::Jump(i) => {
                     self.ip += i as usize - 1;
                 }

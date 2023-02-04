@@ -12,6 +12,7 @@ pub enum Kind<'src> {
     Pipe,
     True,
     Var(&'src str),
+    String(&'src str),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -69,16 +70,29 @@ impl<'src> Iterator for Tokens<'src> {
                 '(' => Kind::OpenParen,
                 ')' => Kind::CloseParen,
                 '|' => Kind::Pipe,
+                '"' => {
+                    let kind;
+                    loop {
+                        if let Some((j, c)) = self.next_char() {
+                            if c == '"' {
+                                kind = Kind::String(&self.src[i..(j + c.len_utf8())]);
+                                break;
+                            }
+                        } else {
+                            todo!();
+                        }
+                    }
+                    kind
+                }
                 _ => {
                     let (mut j, mut c) = (i, c);
                     while self.chars.peek().map_or(false, |(_, c)| {
-                        !(*c == '(' || *c == ')' || *c == '|' || c.is_whitespace())
-                    }) {
+                        *c != '(' && *c != ')' && *c != '|' && *c != '"' && !c.is_whitespace()
+                   }) {
                         // safe to unwrap because we just peeked
                         (j, c) = self.next_char().unwrap();
                     }
-                    j += c.len_utf8();
-                    match &self.src[i..j] {
+                    match &self.src[i..(j + c.len_utf8())] {
                         "false" => Kind::False,
                         "if" => Kind::If,
                         "let" => Kind::Let,

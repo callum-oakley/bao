@@ -1,4 +1,4 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, rc::Rc};
 
 use crate::{
     token::{Kind, Token, Tokens},
@@ -67,17 +67,13 @@ impl<'src> Chunk<'src> {
     }
 
     fn resolve_var(&mut self, state: &mut State<'src>, name: &'src str) -> u16 {
-        let mut i = state.vars.len() - 1;
-        loop {
-            if state.vars[i] == name {
-                return i.try_into().unwrap();
-            }
-            if i == 0 {
-                break;
-            }
-            i -= 1;
-        }
-        todo!()
+        state
+            .vars
+            .iter()
+            .rposition(|var| *var == name)
+            .unwrap()
+            .try_into()
+            .unwrap()
     }
 
     fn identifier(&mut self, state: &mut State<'src>) -> &'src str {
@@ -102,6 +98,12 @@ impl<'src> Chunk<'src> {
                 }
                 Kind::Int(s) => {
                     self.push_constant(Value::Int(s.parse().unwrap()), Some(token));
+                }
+                Kind::String(s) => {
+                    self.push_constant(
+                        Value::String(Rc::new(s[1..(s.len() - 1)].to_string())),
+                        Some(token),
+                    );
                 }
                 Kind::If => {
                     self.block(state); // test

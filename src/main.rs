@@ -1,4 +1,4 @@
-mod code;
+mod compiler;
 mod token;
 mod value;
 mod vm;
@@ -6,7 +6,7 @@ mod vm;
 fn main() {
     println!(
         "{:?}",
-        vm::VM::new(code::Chunk::new(token::Tokens::new(
+        vm::VM::new(compiler::compile(token::Tokens::new(
             r#"
             let a "foo bar"
             let a 22

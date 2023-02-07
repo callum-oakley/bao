@@ -4,16 +4,12 @@ mod value;
 mod vm;
 
 fn main() {
-    println!(
-        "{:?}",
-        vm::VM::new(compiler::compile(token::Tokens::new(
-            r#"
-            let a "foo bar"
-            let a 22
-              a
-            a
-            "#
-        )))
-        .run()
-    );
+    let src = r#"
+        let foo ||
+          42
+        let id |x|
+          x
+        if true ((id id) (foo)) (id nil)
+    "#;
+    println!("{:?}", vm::VM::new(compiler::compile(token::Tokens::new(src))).run());
 }

@@ -7,8 +7,9 @@ use crate::{
 
 #[derive(Debug)]
 pub enum Op {
+    Call(u16),
     Constant(u16),
-    Done,
+    Return,
     False,
     Jump(u16),
     JumpIfFalse(u16),
@@ -44,15 +45,48 @@ impl<'src> Chunk<'src> {
 }
 
 #[derive(Debug)]
-struct Compiler<'src> {
-    tokens: Peekable<Tokens<'src>>,
+struct State<'src> {
     vars: Vec<&'src str>,
     function: Function<'src>,
 }
 
+impl<'src> State<'src> {
+    fn new() -> Self {
+        Self {
+            vars: Vec::new(),
+            function: Function {
+                arity: 0,
+                chunk: Chunk {
+                    code: Vec::new(),
+                    constants: Vec::new(),
+                    debug_info: Vec::new(),
+                },
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Compiler<'src> {
+    tokens: Peekable<Tokens<'src>>,
+    state: Vec<State<'src>>,
+}
+
 impl<'src> Compiler<'src> {
+    fn vars(&mut self) -> &mut Vec<&'src str> {
+        &mut self.state.last_mut().unwrap().vars
+    }
+
+    fn chunk(&mut self) -> &mut Chunk<'src> {
+        &mut self.state.last_mut().unwrap().function.chunk
+    }
+
+    fn arity(&mut self) -> &mut u8 {
+        &mut self.state.last_mut().unwrap().function.arity
+    }
+
     fn resolve_var(&mut self, name: &'src str) -> u16 {
-        self.vars
+        self.vars()
             .iter()
             .rposition(|var| *var == name)
             .unwrap()
@@ -60,7 +94,7 @@ impl<'src> Compiler<'src> {
             .unwrap()
     }
 
-    fn identifier(&mut self) -> &'src str {
+    fn var(&mut self) -> &'src str {
         if let Kind::Var(name) = self.tokens.next().unwrap().kind {
             name
         } else {
@@ -72,54 +106,93 @@ impl<'src> Compiler<'src> {
         if let Some(token) = self.tokens.next() {
             match token.kind {
                 Kind::Nil => {
-                    self.function.chunk.push(Op::Nil, Some(token));
+                    self.chunk().push(Op::Nil, Some(token));
                 }
                 Kind::True => {
-                    self.function.chunk.push(Op::True, Some(token));
+                    self.chunk().push(Op::True, Some(token));
                 }
                 Kind::False => {
-                    self.function.chunk.push(Op::False, Some(token));
+                    self.chunk().push(Op::False, Some(token));
                 }
                 Kind::Int(s) => {
-                    self.function
-                        .chunk
+                    self.chunk()
                         .push_constant(Value::Int(s.parse().unwrap()), Some(token));
                 }
                 Kind::String(s) => {
-                    self.function
-                        .chunk
+                    self.chunk()
                         .push_constant(Value::string(s[1..(s.len() - 1)].to_string()), Some(token));
                 }
                 Kind::If => {
                     self.block(); // test
-                    let jump_over_then = self.function.chunk.push(Op::Unreachable, Some(token));
-                    self.function.chunk.push(Op::Pop, Some(token)); // pop result of test
+                    let jump_over_then = self.chunk().push(Op::Unreachable, Some(token));
+                    self.chunk().push(Op::Pop, Some(token)); // pop result of test
                     self.block(); // then
-                    let jump_over_else = self.function.chunk.push(Op::Unreachable, Some(token));
-                    self.function.chunk.code[jump_over_then] = Op::JumpIfFalse(
-                        (self.function.chunk.code.len() - jump_over_then)
+                    let jump_over_else = self.chunk().push(Op::Unreachable, Some(token));
+                    self.chunk().code[jump_over_then] = Op::JumpIfFalse(
+                        (self.chunk().code.len() - jump_over_then)
                             .try_into()
                             .unwrap(),
                     );
-                    self.function.chunk.push(Op::Pop, Some(token)); // pop result of test
+                    self.chunk().push(Op::Pop, Some(token)); // pop result of test
                     self.block(); // else
-                    self.function.chunk.code[jump_over_else] = Op::Jump(
-                        (self.function.chunk.code.len() - jump_over_else)
+                    self.chunk().code[jump_over_else] = Op::Jump(
+                        (self.chunk().code.len() - jump_over_else)
                             .try_into()
                             .unwrap(),
                     );
                 }
                 Kind::Let => {
-                    let name = self.identifier();
-                    self.vars.push(name);
+                    let name = self.var();
+                    self.vars().push(name);
                     self.block();
                     self.block();
-                    self.vars.pop();
-                    self.function.chunk.push(Op::Squash, Some(token));
+                    self.vars().pop();
+                    self.chunk().push(Op::Squash, Some(token));
+                }
+                Kind::Pipe => {
+                    self.state.push(State::new());
+                    loop {
+                        if let Some(token) = self.tokens.next() {
+                            match token.kind {
+                                Kind::Pipe => {
+                                    break;
+                                }
+                                Kind::Var(name) => {
+                                    *self.arity() += 1;
+                                    self.vars().push(name);
+                                }
+                                _ => todo!(),
+                            }
+                        } else {
+                            todo!();
+                        }
+                    }
+                    self.block();
+                    self.chunk().push(Op::Return, Some(token));
+                    let function = self.state.pop().unwrap().function;
+                    self.chunk()
+                        .push_constant(Value::function(function), Some(token));
+                }
+                Kind::OpenParen => {
+                    self.expression(); // function
+                    let mut args = 0;
+                    loop {
+                        if let Some(token) = self.tokens.peek() {
+                            if let Kind::CloseParen = token.kind {
+                                self.tokens.next();
+                                break;
+                            }
+                            self.expression();
+                            args += 1;
+                        } else {
+                            todo!();
+                        }
+                    }
+                    self.chunk().push(Op::Call(args), Some(token));
                 }
                 Kind::Var(name) => {
                     let i = self.resolve_var(name);
-                    self.function.chunk.push(Op::Var(i), Some(token));
+                    self.chunk().push(Op::Var(i), Some(token));
                 }
                 _ => todo!(),
             }
@@ -134,30 +207,22 @@ impl<'src> Compiler<'src> {
             if token.col != col {
                 break;
             }
-            self.function.chunk.push(Op::Pop, None);
+            self.chunk().push(Op::Pop, None);
             self.expression();
         }
     }
 }
 
-pub fn compile(tokens: Tokens) -> Function {
+pub fn compile(tokens: Tokens) -> Value {
     let mut compiler = Compiler {
         tokens: tokens.peekable(),
-        vars: Vec::new(),
-        function: Function {
-            arity: 0,
-            name: "",
-            chunk: Chunk {
-                code: Vec::new(),
-                constants: Vec::new(),
-                debug_info: Vec::new(),
-            },
-        },
+        state: vec![State::new()],
     };
     compiler.block();
     if !compiler.tokens.next().is_none() {
         todo!()
     }
-    compiler.function.chunk.push(Op::Done, None);
-    compiler.function
+    assert_eq!(compiler.state.len(), 1);
+    compiler.chunk().push(Op::Return, None);
+    Value::function(compiler.state.pop().unwrap().function)
 }

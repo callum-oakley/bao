@@ -14,8 +14,8 @@ pub enum Value<'src> {
 #[derive(Debug)]
 pub struct Function<'src> {
     pub arity: u8,
-    pub name: &'src str,
     pub chunk: Chunk<'src>,
+    // TODO name?
 }
 
 impl<'src> Value<'src> {

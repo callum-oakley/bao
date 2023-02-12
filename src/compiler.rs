@@ -1,8 +1,8 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, rc::Rc};
 
 use crate::{
     token::{Kind, Token, Tokens},
-    value::{Function, Value},
+    value::{Function, Value, Native}, native,
 };
 
 #[derive(Debug)]
@@ -45,12 +45,12 @@ impl<'src> Chunk<'src> {
 }
 
 #[derive(Debug)]
-struct State<'src> {
+struct Frame<'src> {
     vars: Vec<&'src str>,
     function: Function<'src>,
 }
 
-impl<'src> State<'src> {
+impl<'src> Frame<'src> {
     fn new() -> Self {
         Self {
             vars: Vec::new(),
@@ -69,20 +69,20 @@ impl<'src> State<'src> {
 #[derive(Debug)]
 struct Compiler<'src> {
     tokens: Peekable<Tokens<'src>>,
-    state: Vec<State<'src>>,
+    frames: Vec<Frame<'src>>,
 }
 
 impl<'src> Compiler<'src> {
     fn vars(&mut self) -> &mut Vec<&'src str> {
-        &mut self.state.last_mut().unwrap().vars
+        &mut self.frames.last_mut().unwrap().vars
     }
 
     fn chunk(&mut self) -> &mut Chunk<'src> {
-        &mut self.state.last_mut().unwrap().function.chunk
+        &mut self.frames.last_mut().unwrap().function.chunk
     }
 
-    fn arity(&mut self) -> &mut u8 {
-        &mut self.state.last_mut().unwrap().function.arity
+    fn arity(&mut self) -> &mut u16 {
+        &mut self.frames.last_mut().unwrap().function.arity
     }
 
     fn resolve_var(&mut self, name: &'src str) -> u16 {
@@ -150,7 +150,7 @@ impl<'src> Compiler<'src> {
                     self.chunk().push(Op::Squash, Some(token));
                 }
                 Kind::Pipe => {
-                    self.state.push(State::new());
+                    self.frames.push(Frame::new());
                     loop {
                         if let Some(token) = self.tokens.next() {
                             match token.kind {
@@ -169,7 +169,7 @@ impl<'src> Compiler<'src> {
                     }
                     self.block();
                     self.chunk().push(Op::Return, Some(token));
-                    let function = self.state.pop().unwrap().function;
+                    let function = self.frames.pop().unwrap().function;
                     self.chunk()
                         .push_constant(Value::function(function), Some(token));
                 }
@@ -211,18 +211,30 @@ impl<'src> Compiler<'src> {
             self.expression();
         }
     }
+
+    fn let_native(&mut self, name: &'static str, native: &'static Native) {
+        self.vars().push(name);
+        self.chunk().push_constant(Value::Native(native), None);
+    }
 }
 
-pub fn compile(tokens: Tokens) -> Value {
+pub fn compile(tokens: Tokens) -> Rc<Function> {
     let mut compiler = Compiler {
         tokens: tokens.peekable(),
-        state: vec![State::new()],
+        frames: vec![Frame::new()],
     };
+    compiler.let_native("+", &native::ADD);
+    compiler.let_native("-", &native::SUB);
+    compiler.let_native("=", &native::EQ);
+    compiler.let_native("not=", &native::NOT_EQ);
+    compiler.let_native("<", &native::LT);
+    compiler.let_native("<=", &native::LT_EQ);
+    compiler.let_native("not", &native::NOT);
     compiler.block();
     if !compiler.tokens.next().is_none() {
         todo!()
     }
-    assert_eq!(compiler.state.len(), 1);
+    assert_eq!(compiler.frames.len(), 1);
     compiler.chunk().push(Op::Return, None);
-    Value::function(compiler.state.pop().unwrap().function)
+    Rc::new(compiler.frames.pop().unwrap().function)
 }

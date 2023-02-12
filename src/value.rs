@@ -1,4 +1,5 @@
-use std::rc::Rc;
+use core::fmt;
+use std::{rc::Rc};
 
 use crate::compiler::Chunk;
 
@@ -9,13 +10,30 @@ pub enum Value<'src> {
     Int(i32),
     String(Rc<String>),
     Function(Rc<Function<'src>>),
+    Native(&'static Native),
 }
 
-#[derive(Debug)]
 pub struct Function<'src> {
-    pub arity: u8,
+    pub arity: u16,
     pub chunk: Chunk<'src>,
     // TODO name?
+}
+
+impl<'src> fmt::Debug for Function<'src> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<function>")
+    }
+}
+
+pub struct Native {
+    pub arity: u16,
+    pub f: for<'src> fn(&[Value<'src>]) -> Value<'src>,
+}
+
+impl fmt::Debug for Native {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<native>")
+    }
 }
 
 impl<'src> Value<'src> {

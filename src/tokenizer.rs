@@ -1,40 +1,65 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Error, Result};
 
+#[derive(Debug)]
 pub struct Token<'a> {
-    pub kind: Kind,
+    pub kind: TokenKind,
     pub location: Location<'a>,
 }
 
-pub enum Kind {
+#[derive(PartialEq, Debug)]
+pub enum TokenKind {
     Char,
-    Comma,
-    Eq,
+    Fn,
     Int,
     LBrace,
     Let,
     LParen,
     RBrace,
     RParen,
-    Semi,
     String,
     Use,
     Var,
 }
 
+#[derive(Clone, Copy)]
 pub struct Location<'a> {
-    path: &'a str,
-    src: &'a str,
-    start: usize,
-    end: usize,
+    pub path: &'a str,
+    pub src: &'a str,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl<'a> Location<'a> {
+    pub fn error(&self, inner: Error) -> Error {
+        let (line, col) = offset_to_line_and_col(self.src, self.start);
+        anyhow!("{} at {}:{}:{}", inner, self.path, line, col)
+    }
+}
+
+impl<'a> std::fmt::Debug for Location<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let (line, col) = offset_to_line_and_col(self.src, self.start);
+        write!(f, "{}:{}:{}", self.path, line, col)
+    }
+}
+
+impl<'a> Token<'a> {
+    pub fn as_str(&self) -> &'a str {
+        &self.location.src[self.location.start..self.location.end]
+    }
+
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.as_str().as_bytes()
+    }
+
+    pub fn unexpected(&self) -> Error {
+        self.location.error(anyhow!("unexpected {self}"))
+    }
 }
 
 impl<'a> std::fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            &self.location.src[self.location.start..self.location.end]
-        )
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -53,7 +78,7 @@ impl<'a> Tokens<'a> {
         }
     }
 
-    fn token(&self, kind: Kind, start: usize, end: usize) -> Token<'a> {
+    fn token(&self, kind: TokenKind, start: usize, end: usize) -> Token<'a> {
         Token {
             kind,
             location: Location {
@@ -72,7 +97,7 @@ impl<'a> Tokens<'a> {
     fn peek(&self) -> Result<u8> {
         match self.src.as_bytes().get(self.offset).copied() {
             Some(c) => Ok(c),
-            None => bail!("EOF reading {}", self.path),
+            None => bail!("EOF tokenizing {}", self.path),
         }
     }
 
@@ -112,13 +137,13 @@ impl<'a> Tokens<'a> {
         Ok(())
     }
 
-    fn tokenize_punctuation(&mut self, c: u8, kind: Kind) -> Result<Token<'a>> {
+    fn tokenize_punctuation(&mut self, c: u8, kind: TokenKind) -> Result<Token<'a>> {
         let start = self.offset;
         self.consume(c)?;
         Ok(self.token(kind, start, self.offset))
     }
 
-    fn tokenize_quoted(&mut self, quote: u8, kind: Kind) -> Result<Token<'a>> {
+    fn tokenize_quoted(&mut self, quote: u8, kind: TokenKind) -> Result<Token<'a>> {
         let start = self.offset;
         self.consume(quote)?;
         loop {
@@ -141,21 +166,19 @@ impl<'a> Tokens<'a> {
         while self.peek()?.is_ascii_digit() {
             self.next()?;
         }
-        Ok(self.token(Kind::Int, start, self.offset))
+        Ok(self.token(TokenKind::Int, start, self.offset))
     }
 
     fn tokenize_word(&mut self) -> Result<Token<'a>> {
-        fn is_word_char(c: u8) -> bool {
-            c.is_ascii_alphanumeric() || b"_!?".contains(&c)
-        }
         let start = self.offset;
         while is_word_char(self.peek()?) {
             self.next()?;
         }
         let kind = match &self.src[start..self.offset] {
-            "let" => Kind::Let,
-            "use" => Kind::Use,
-            _ => Kind::Var,
+            "fn" => TokenKind::Fn,
+            "let" => TokenKind::Let,
+            "use" => TokenKind::Use,
+            _ => TokenKind::Var,
         };
         Ok(self.token(kind, start, self.offset))
     }
@@ -171,17 +194,24 @@ impl<'a> Iterator for Tokens<'a> {
             None
         } else {
             let token = self.peek().and_then(|c| match c {
-                b',' => self.tokenize_punctuation(b',', Kind::Comma),
-                b'=' => self.tokenize_punctuation(b'=', Kind::Eq),
-                b'{' => self.tokenize_punctuation(b'{', Kind::LBrace),
-                b'(' => self.tokenize_punctuation(b'(', Kind::LParen),
-                b'}' => self.tokenize_punctuation(b'}', Kind::RBrace),
-                b')' => self.tokenize_punctuation(b')', Kind::RParen),
-                b';' => self.tokenize_punctuation(b';', Kind::Semi),
-                b'-' | b'0'..=b'9' => self.tokenize_int(),
-                b'\'' => self.tokenize_quoted(b'\'', Kind::Char),
-                b'"' => self.tokenize_quoted(b'"', Kind::String),
-                _ => self.tokenize_word(),
+                b'{' => self.tokenize_punctuation(b'{', TokenKind::LBrace),
+                b'(' => self.tokenize_punctuation(b'(', TokenKind::LParen),
+                b'}' => self.tokenize_punctuation(b'}', TokenKind::RBrace),
+                b')' => self.tokenize_punctuation(b')', TokenKind::RParen),
+                b'\'' => self.tokenize_quoted(b'\'', TokenKind::Char),
+                b'"' => self.tokenize_quoted(b'"', TokenKind::String),
+                _ if c == b'-' || c.is_ascii_digit() => self.tokenize_int(),
+                _ if is_word_char(c) => self.tokenize_word(),
+                _ => {
+                    let (line, col) = offset_to_line_and_col(self.src, self.offset);
+                    bail!(
+                        "unexpected {} at {}:{}:{}",
+                        char::from(c),
+                        self.path,
+                        line,
+                        col
+                    );
+                }
             });
             Some(token)
         }
@@ -200,4 +230,8 @@ fn offset_to_line_and_col(src: &str, offset: usize) -> (usize, usize) {
         }
     }
     (line, col)
+}
+
+fn is_word_char(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || b"_!?".contains(&c)
 }

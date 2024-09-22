@@ -8,16 +8,14 @@ pub struct Token<'a> {
 
 #[derive(PartialEq, Debug)]
 pub enum TokenKind {
-    Char,
     Fn,
-    Int,
     LBrace,
     Let,
     LParen,
+    Num,
     RBrace,
     RParen,
     String,
-    Use,
     Var,
 }
 
@@ -46,10 +44,6 @@ impl<'a> std::fmt::Debug for Location<'a> {
 impl<'a> Token<'a> {
     pub fn as_str(&self) -> &'a str {
         &self.location.src[self.location.start..self.location.end]
-    }
-
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.as_str().as_bytes()
     }
 
     pub fn unexpected(&self) -> Error {
@@ -158,15 +152,15 @@ impl<'a> Tokens<'a> {
         Ok(self.token(kind, start, self.offset))
     }
 
-    fn tokenize_int(&mut self) -> Result<Token<'a>> {
+    fn tokenize_num(&mut self) -> Result<Token<'a>> {
         let start = self.offset;
         if self.peek()? == b'-' {
             self.next()?;
         }
-        while self.peek()?.is_ascii_digit() {
+        while self.peek()?.is_ascii_digit() || self.peek()? == b'.' {
             self.next()?;
         }
-        Ok(self.token(TokenKind::Int, start, self.offset))
+        Ok(self.token(TokenKind::Num, start, self.offset))
     }
 
     fn tokenize_word(&mut self) -> Result<Token<'a>> {
@@ -177,7 +171,6 @@ impl<'a> Tokens<'a> {
         let kind = match &self.src[start..self.offset] {
             "fn" => TokenKind::Fn,
             "let" => TokenKind::Let,
-            "use" => TokenKind::Use,
             _ => TokenKind::Var,
         };
         Ok(self.token(kind, start, self.offset))
@@ -198,9 +191,8 @@ impl<'a> Iterator for Tokens<'a> {
                 b'(' => self.tokenize_punctuation(b'(', TokenKind::LParen),
                 b'}' => self.tokenize_punctuation(b'}', TokenKind::RBrace),
                 b')' => self.tokenize_punctuation(b')', TokenKind::RParen),
-                b'\'' => self.tokenize_quoted(b'\'', TokenKind::Char),
                 b'"' => self.tokenize_quoted(b'"', TokenKind::String),
-                _ if c == b'-' || c.is_ascii_digit() => self.tokenize_int(),
+                _ if c == b'-' || c.is_ascii_digit() => self.tokenize_num(),
                 _ if is_word_char(c) => self.tokenize_word(),
                 _ => {
                     let (line, col) = offset_to_line_and_col(self.src, self.offset);
@@ -233,5 +225,5 @@ fn offset_to_line_and_col(src: &str, offset: usize) -> (usize, usize) {
 }
 
 fn is_word_char(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || b"_!?".contains(&c)
+    c.is_ascii_alphanumeric() || c == b'_'
 }

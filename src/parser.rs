@@ -1,41 +1,53 @@
 use std::iter::Peekable;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::tokenizer::{Location, Token, TokenKind, Tokens};
 
 #[derive(Debug)]
 pub struct Exp<'a> {
-    kind: ExpKind<'a>,
-    location: Location<'a>,
+    pub kind: ExpKind<'a>,
+    pub location: Location<'a>,
 }
 
 #[derive(Debug)]
 pub enum ExpKind<'a> {
-    Apply(Box<Exp<'a>>, Vec<Exp<'a>>),
-    Block(Vec<Exp<'a>>),
-    Fn(Option<&'a str>, Vec<&'a str>, Box<Exp<'a>>),
-    Int(i64),
+    Call(Box<Exp<'a>>, Vec<Exp<'a>>),
+    Fn(Option<&'a str>, Vec<&'a str>, Vec<Exp<'a>>),
+    Num(&'a str),
     Let(&'a str, Box<Exp<'a>>),
-    String(String),
-    Use(String),
+    String(&'a str),
     Var(&'a str),
 }
 
 impl<'a> Exp<'a> {
-    fn new(kind: ExpKind<'a>, location: Location<'a>) -> Self {
+    pub fn new(kind: ExpKind<'a>, location: Location<'a>) -> Self {
         Exp { kind, location }
     }
 }
 
-pub fn parse<'a>(path: &'a str, src: &'a str) -> Result<Vec<Exp<'a>>> {
+pub fn parse<'a>(path: &'a str, src: &'a str) -> Result<Exp<'a>> {
     let tokens = Tokens::new(path, src).peekable();
     let mut parser = Parser { path, src, tokens };
-    let routine = parser.parse_routine()?;
+    let block = parser.parse_block()?;
+
     if !parser.is_eof() {
         bail!(parser.peek()?.unexpected());
     }
-    Ok(routine)
+
+    let location = Location {
+        path,
+        src,
+        start: 0,
+        end: src.len(),
+    };
+    Ok(Exp::new(
+        ExpKind::Call(
+            Box::new(Exp::new(ExpKind::Fn(None, Vec::new(), block), location)),
+            Vec::new(),
+        ),
+        location,
+    ))
 }
 
 struct Parser<'a> {
@@ -75,43 +87,31 @@ impl<'a> Parser<'a> {
         Ok(token)
     }
 
-    fn parse_routine(&mut self) -> Result<Vec<Exp<'a>>> {
-        let mut routine = Vec::new();
+    fn parse_block(&mut self) -> Result<Vec<Exp<'a>>> {
+        let mut block = Vec::new();
         while !self.is_eof() && self.peek()?.kind != TokenKind::RBrace {
-            routine.push(self.parse_exp()?);
+            block.push(self.parse_exp()?);
         }
-        Ok(routine)
+        Ok(block)
     }
 
     fn parse_exp(&mut self) -> Result<Exp<'a>> {
         let token = self.peek()?;
         let exp = match token.kind {
-            TokenKind::Char => self.parse_char(),
             TokenKind::Fn => self.parse_fn(),
-            TokenKind::Int => self.parse_int(),
-            TokenKind::LBrace => self.parse_block(),
             TokenKind::Let => self.parse_let(),
+            TokenKind::Num => self.parse_num(),
             TokenKind::String => self.parse_string(),
-            TokenKind::Use => self.parse_use(),
             TokenKind::Var => self.parse_var(),
-            TokenKind::LParen | TokenKind::RParen | TokenKind::RBrace => bail!(token.unexpected()),
+            TokenKind::LParen | TokenKind::RParen | TokenKind::LBrace | TokenKind::RBrace => {
+                bail!(token.unexpected())
+            }
         }?;
         if self.peek()?.kind == TokenKind::LParen {
-            self.parse_apply(exp)
+            self.parse_call(exp)
         } else {
             Ok(exp)
         }
-    }
-
-    fn parse_char(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::Char)?;
-        let c = match token.as_bytes() {
-            b"'\\n'" => b'\n',
-            b"'\\t'" => b'\t',
-            [b'\'', c, b'\''] | [b'\'', b'\\', c, b'\''] => *c,
-            _ => bail!(token.location.error(anyhow!("malformed char"))),
-        };
-        Ok(Exp::new(ExpKind::Int(c.into()), token.location))
     }
 
     fn parse_fn(&mut self) -> Result<Exp<'a>> {
@@ -130,32 +130,18 @@ impl<'a> Parser<'a> {
         }
         self.consume(TokenKind::RParen)?;
 
-        let body = self.parse_exp()?;
+        let mut body = Vec::new();
+        if self.peek()?.kind == TokenKind::LBrace {
+            self.consume(TokenKind::LBrace)?;
+            while self.peek()?.kind != TokenKind::RBrace {
+                body.push(self.parse_exp()?);
+            }
+            self.consume(TokenKind::RBrace)?;
+        } else {
+            body.push(self.parse_exp()?);
+        }
 
-        Ok(Exp::new(
-            ExpKind::Fn(name, params, Box::new(body)),
-            location,
-        ))
-    }
-
-    fn parse_int(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::Int)?;
-        Ok(Exp::new(
-            ExpKind::Int(
-                token
-                    .as_str()
-                    .parse()
-                    .with_context(|| token.location.error(anyhow!("malformed int")))?,
-            ),
-            token.location,
-        ))
-    }
-
-    fn parse_block(&mut self) -> Result<Exp<'a>> {
-        let location = self.consume(TokenKind::LBrace)?.location;
-        let routine = self.parse_routine()?;
-        self.consume(TokenKind::RBrace)?;
-        Ok(Exp::new(ExpKind::Block(routine), location))
+        Ok(Exp::new(ExpKind::Fn(name, params, body), location))
     }
 
     fn parse_let(&mut self) -> Result<Exp<'a>> {
@@ -168,18 +154,14 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_string(&mut self) -> Result<Exp<'a>> {
-        let location = self.peek()?.location;
-        Ok(Exp::new(
-            ExpKind::String(self.parse_string_inner()?),
-            location,
-        ))
+    fn parse_num(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::Num)?;
+        Ok(Exp::new(ExpKind::Num(token.as_str()), token.location))
     }
 
-    fn parse_use(&mut self) -> Result<Exp<'a>> {
-        let location = self.consume(TokenKind::Use)?.location;
-        let s = self.parse_string_inner()?;
-        Ok(Exp::new(ExpKind::Use(s), location))
+    fn parse_string(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::String)?;
+        Ok(Exp::new(ExpKind::String(token.as_str()), token.location))
     }
 
     fn parse_var(&mut self) -> Result<Exp<'a>> {
@@ -187,7 +169,7 @@ impl<'a> Parser<'a> {
         Ok(Exp::new(ExpKind::Var(token.as_str()), token.location))
     }
 
-    fn parse_apply(&mut self, function: Exp<'a>) -> Result<Exp<'a>> {
+    fn parse_call(&mut self, function: Exp<'a>) -> Result<Exp<'a>> {
         let location = self.consume(TokenKind::LParen)?.location;
         let mut args = Vec::new();
         while self.peek()?.kind != TokenKind::RParen {
@@ -195,50 +177,12 @@ impl<'a> Parser<'a> {
         }
         self.consume(TokenKind::RParen)?;
 
-        let exp = Exp::new(ExpKind::Apply(Box::new(function), args), location);
+        let exp = Exp::new(ExpKind::Call(Box::new(function), args), location);
 
         if !self.is_eof() && self.peek()?.kind == TokenKind::LParen {
-            self.parse_apply(exp)
+            self.parse_call(exp)
         } else {
             Ok(exp)
-        }
-    }
-
-    fn parse_string_inner(&mut self) -> Result<String> {
-        let token = self.consume(TokenKind::String)?;
-        match token.as_bytes() {
-            [b'"', cs @ .., b'"'] => {
-                let mut s = Vec::new();
-                let mut escape = false;
-                for c in cs {
-                    if escape {
-                        match c {
-                            b'n' => {
-                                s.push(b'\n');
-                            }
-                            b't' => {
-                                s.push(b'\t');
-                            }
-                            _ => {
-                                s.push(*c);
-                            }
-                        }
-                        escape = false;
-                    } else {
-                        match c {
-                            b'\\' => {
-                                escape = true;
-                            }
-                            _ => {
-                                s.push(*c);
-                            }
-                        }
-                    }
-                }
-                Ok(String::from_utf8(s)
-                    .with_context(|| token.location.error(anyhow!("malformed string")))?)
-            }
-            _ => Err(token.location.error(anyhow!("malformed string"))),
         }
     }
 }

@@ -1,0 +1,3 @@
+fn true(ifTrue ifFalse) ifTrue()
+
+fn false(ifTrue ifFalse) ifFalse()

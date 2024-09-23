@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::{anyhow, bail, Error, Result};
 
 #[derive(Debug)]
@@ -11,17 +13,16 @@ pub enum TokenKind {
     Fn,
     LBrace,
     Let,
+    Literal,
     LParen,
-    Num,
     RBrace,
     RParen,
-    String,
     Var,
 }
 
 #[derive(Clone, Copy)]
 pub struct Location<'a> {
-    pub path: &'a str,
+    pub path: &'a Path,
     pub src: &'a str,
     pub start: usize,
     pub end: usize,
@@ -30,14 +31,14 @@ pub struct Location<'a> {
 impl<'a> Location<'a> {
     pub fn error(&self, inner: Error) -> Error {
         let (line, col) = offset_to_line_and_col(self.src, self.start);
-        anyhow!("{} at {}:{}:{}", inner, self.path, line, col)
+        anyhow!("{} at {}:{}:{}", inner, self.path.display(), line, col)
     }
 }
 
 impl<'a> std::fmt::Debug for Location<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let (line, col) = offset_to_line_and_col(self.src, self.start);
-        write!(f, "{}:{}:{}", self.path, line, col)
+        write!(f, "{}:{}:{}", self.path.display(), line, col)
     }
 }
 
@@ -58,13 +59,13 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 pub struct Tokens<'a> {
-    path: &'a str,
+    path: &'a Path,
     src: &'a str,
     offset: usize,
 }
 
 impl<'a> Tokens<'a> {
-    pub fn new(path: &'a str, src: &'a str) -> Self {
+    pub fn new(path: &'a Path, src: &'a str) -> Self {
         Self {
             path,
             src,
@@ -91,7 +92,7 @@ impl<'a> Tokens<'a> {
     fn peek(&self) -> Result<u8> {
         match self.src.as_bytes().get(self.offset).copied() {
             Some(c) => Ok(c),
-            None => bail!("EOF tokenizing {}", self.path),
+            None => bail!("EOF tokenizing {}", self.path.display()),
         }
     }
 
@@ -110,7 +111,7 @@ impl<'a> Tokens<'a> {
                 "expected {} but got {} at {}:{}:{}",
                 char::from(expected),
                 char::from(c),
-                self.path,
+                self.path.display(),
                 line,
                 col,
             )
@@ -137,19 +138,19 @@ impl<'a> Tokens<'a> {
         Ok(self.token(kind, start, self.offset))
     }
 
-    fn tokenize_quoted(&mut self, quote: u8, kind: TokenKind) -> Result<Token<'a>> {
+    fn tokenize_string(&mut self) -> Result<Token<'a>> {
         let start = self.offset;
-        self.consume(quote)?;
+        self.consume(b'"')?;
         loop {
             let c = self.next()?;
-            if c == quote {
+            if c == b'"' {
                 break;
             }
             if c == b'\\' {
                 self.next()?;
             }
         }
-        Ok(self.token(kind, start, self.offset))
+        Ok(self.token(TokenKind::Literal, start, self.offset))
     }
 
     fn tokenize_num(&mut self) -> Result<Token<'a>> {
@@ -160,7 +161,7 @@ impl<'a> Tokens<'a> {
         while self.peek()?.is_ascii_digit() || self.peek()? == b'.' {
             self.next()?;
         }
-        Ok(self.token(TokenKind::Num, start, self.offset))
+        Ok(self.token(TokenKind::Literal, start, self.offset))
     }
 
     fn tokenize_word(&mut self) -> Result<Token<'a>> {
@@ -191,7 +192,7 @@ impl<'a> Iterator for Tokens<'a> {
                 b'(' => self.tokenize_punctuation(b'(', TokenKind::LParen),
                 b'}' => self.tokenize_punctuation(b'}', TokenKind::RBrace),
                 b')' => self.tokenize_punctuation(b')', TokenKind::RParen),
-                b'"' => self.tokenize_quoted(b'"', TokenKind::String),
+                b'"' => self.tokenize_string(),
                 _ if c == b'-' || c.is_ascii_digit() => self.tokenize_num(),
                 _ if is_word_char(c) => self.tokenize_word(),
                 _ => {
@@ -199,7 +200,7 @@ impl<'a> Iterator for Tokens<'a> {
                     bail!(
                         "unexpected {} at {}:{}:{}",
                         char::from(c),
-                        self.path,
+                        self.path.display(),
                         line,
                         col
                     );
@@ -225,5 +226,5 @@ fn offset_to_line_and_col(src: &str, offset: usize) -> (usize, usize) {
 }
 
 fn is_word_char(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_'
+    c.is_ascii_alphanumeric() || b"_?!*".contains(&c)
 }

@@ -6,7 +6,6 @@ function tail(f, ...args) {
     return { tail: true, f, args };
 }
 
-// TODO arity checks
 function call(f, ...args) {
     let x = f(...args);
     while (x.tail) {
@@ -17,39 +16,27 @@ function call(f, ...args) {
 
 const $nil = undefined;
 
-// TODO move the definition of true and false to core.bao. They don't reference any JS builtins so
-// they don't need to be here.
-function $true(ifTrue, ifFalse) {
-    return tail(ifTrue);
-}
-
-// TODO move the definition of true and false to core.bao. They don't reference any JS builtins so
-// they don't need to be here.
-function $false(ifTrue, ifFalse) {
-    return tail(ifFalse);
-}
-
-function $eq(a, b) {
+function $eq$Q(a, b) {
     return res(a === b ? $true : $false);
 }
 
-function $neq(a, b) {
+function $neq$Q(a, b) {
     return res(a !== b ? $true : $false);
 }
 
-function $lt(a, b) {
+function $lt$Q(a, b) {
     return res(a < b ? $true : $false);
 }
 
-function $gt(a, b) {
+function $gt$Q(a, b) {
     return res(a > b ? $true : $false);
 }
 
-function $lte(a, b) {
+function $lte$Q(a, b) {
     return res(a <= b ? $true : $false);
 }
 
-function $gte(a, b) {
+function $gte$Q(a, b) {
     return res(a >= b ? $true : $false);
 }
 
@@ -69,7 +56,7 @@ function $div(a, b) {
     return res(a / b);
 }
 
-function $print(x) {
+function $print$E(x) {
     console.log(x);
     return res($nil);
 }

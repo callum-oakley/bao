@@ -1,23 +1,36 @@
-use std::io;
+use std::{fs, io, path::Path};
 
 use anyhow::Result;
 
-use crate::parser::{Exp, ExpKind};
+use crate::parser::{self, Exp, Stmt};
 
-pub fn write_js(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
-    write!(w, "{}", include_str!("core.js"))?;
-    write_exp(w, exp)?;
+pub fn compile(w: &mut impl io::Write, path: &Path) -> Result<()> {
+    writeln!(w, "{}", include_str!("core.js"))?;
+    for stmt in parser::parse(Path::new("core.bao"), include_str!("core.bao"))? {
+        write_stmt(w, &stmt)?;
+        writeln!(w, ";\n")?;
+    }
+    write_exp(
+        w,
+        &Exp::Call(
+            Box::new(Exp::Fn(
+                None,
+                Vec::new(),
+                parser::parse(path, &fs::read_to_string(path)?)?,
+                Box::new(Exp::Var("nil")),
+            )),
+            Vec::new(),
+        ),
+    )?;
     Ok(())
 }
 
 fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
-    match &exp.kind {
-        ExpKind::Call(exp, args) => write_call(w, exp, args, false),
-        ExpKind::Fn(name, params, body) => write_fn(w, *name, params, body),
-        ExpKind::Let(name, body) => write_let(w, name, body),
-        ExpKind::Num(n) => write_num(w, n),
-        ExpKind::String(s) => write_string(w, s),
-        ExpKind::Var(name) => write_var(w, name),
+    match exp {
+        Exp::Call(exp, args) => write_call(w, exp, args, false),
+        Exp::Fn(name, params, body, res) => write_fn(w, *name, params, body, res),
+        Exp::Literal(n) => write_literal(w, n),
+        Exp::Var(name) => write_var(w, name),
     }?;
     Ok(())
 }
@@ -41,7 +54,8 @@ fn write_fn(
     w: &mut impl io::Write,
     name: Option<&str>,
     params: &[&str],
-    body: &[Exp],
+    body: &[Stmt],
+    res: &Exp,
 ) -> Result<()> {
     write!(w, "function")?;
     if let Some(name) = name {
@@ -52,21 +66,26 @@ fn write_fn(
         write!(w, "${},", param)?;
     }
     write!(w, "){{")?;
-    if let Some(last) = body.last() {
-        for exp in body.iter().take(body.len() - 1) {
-            write_exp(w, exp)?;
-            write!(w, ";")?;
-        }
-        write!(w, "return ")?;
-        write_res(w, last)?;
+    for stmt in body {
+        write_stmt(w, stmt)?;
         write!(w, ";")?;
     }
+    write!(w, "return ")?;
+    write_res(w, res)?;
+    write!(w, ";")?;
     write!(w, "}}")?;
     Ok(())
 }
 
+fn write_stmt(w: &mut impl io::Write, stmt: &Stmt) -> Result<()> {
+    match stmt {
+        Stmt::Let(name, body) => write_let(w, name, body),
+        Stmt::Exp(exp) => write_exp(w, exp),
+    }
+}
+
 fn write_res(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
-    if let ExpKind::Call(exp, args) = &exp.kind {
+    if let Exp::Call(exp, args) = exp {
         write_call(w, exp, args, true)?;
     } else {
         write!(w, "res(")?;
@@ -76,24 +95,24 @@ fn write_res(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
     Ok(())
 }
 
-// TODO this is not an expression, change the grammar to ensure it can only appear in a block.
 fn write_let(w: &mut impl io::Write, name: &str, body: &Exp) -> Result<()> {
     write!(w, "const ${} = ", name)?;
     write_exp(w, body)?;
     Ok(())
 }
 
-fn write_num(w: &mut impl io::Write, n: &str) -> Result<()> {
-    write!(w, "{}", n)?;
-    Ok(())
-}
-
-fn write_string(w: &mut impl io::Write, s: &str) -> Result<()> {
-    write!(w, "\"{}\"", s)?;
+fn write_literal(w: &mut impl io::Write, literal: &str) -> Result<()> {
+    write!(w, "{}", literal)?;
     Ok(())
 }
 
 fn write_var(w: &mut impl io::Write, name: &str) -> Result<()> {
-    write!(w, "${}", name)?;
+    write!(
+        w,
+        "${}",
+        name.replace('?', "$Q")
+            .replace('!', "$E")
+            .replace('*', "$S")
+    )?;
     Ok(())
 }

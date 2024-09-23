@@ -1,58 +1,37 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, path::Path};
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::tokenizer::{Location, Token, TokenKind, Tokens};
+use crate::tokenizer::{Token, TokenKind, Tokens};
 
 #[derive(Debug)]
-pub struct Exp<'a> {
-    pub kind: ExpKind<'a>,
-    pub location: Location<'a>,
-}
-
-#[derive(Debug)]
-pub enum ExpKind<'a> {
+pub enum Exp<'a> {
     Call(Box<Exp<'a>>, Vec<Exp<'a>>),
-    Fn(Option<&'a str>, Vec<&'a str>, Vec<Exp<'a>>),
-    Num(&'a str),
-    Let(&'a str, Box<Exp<'a>>),
-    String(&'a str),
+    Fn(Option<&'a str>, Vec<&'a str>, Vec<Stmt<'a>>, Box<Exp<'a>>),
+    Literal(&'a str),
     Var(&'a str),
 }
 
-impl<'a> Exp<'a> {
-    pub fn new(kind: ExpKind<'a>, location: Location<'a>) -> Self {
-        Exp { kind, location }
-    }
+#[derive(Debug)]
+pub enum Stmt<'a> {
+    Let(&'a str, Box<Exp<'a>>),
+    Exp(Exp<'a>),
 }
 
-pub fn parse<'a>(path: &'a str, src: &'a str) -> Result<Exp<'a>> {
+pub fn parse<'a>(path: &'a Path, src: &'a str) -> Result<Vec<Stmt<'a>>> {
     let tokens = Tokens::new(path, src).peekable();
-    let mut parser = Parser { path, src, tokens };
+    let mut parser = Parser { path, tokens };
     let block = parser.parse_block()?;
 
     if !parser.is_eof() {
         bail!(parser.peek()?.unexpected());
     }
 
-    let location = Location {
-        path,
-        src,
-        start: 0,
-        end: src.len(),
-    };
-    Ok(Exp::new(
-        ExpKind::Call(
-            Box::new(Exp::new(ExpKind::Fn(None, Vec::new(), block), location)),
-            Vec::new(),
-        ),
-        location,
-    ))
+    Ok(block)
 }
 
 struct Parser<'a> {
-    path: &'a str,
-    src: &'a str,
+    path: &'a Path,
     tokens: Peekable<Tokens<'a>>,
 }
 
@@ -68,14 +47,14 @@ impl<'a> Parser<'a> {
                 // We need to return an owned error but peeking only gives us a reference so flatten
                 // the error in to a new anyhow::Error.
                 .map_err(|err| anyhow!("{err}")),
-            None => bail!("EOF parsing {}", self.path),
+            None => bail!("EOF parsing {}", self.path.display()),
         }
     }
 
     fn next(&mut self) -> Result<Token<'a>> {
         match self.tokens.next() {
             Some(token) => token,
-            None => bail!("EOF parsing {}", self.path),
+            None => bail!("EOF parsing {}", self.path.display()),
         }
     }
 
@@ -87,27 +66,44 @@ impl<'a> Parser<'a> {
         Ok(token)
     }
 
-    fn parse_block(&mut self) -> Result<Vec<Exp<'a>>> {
+    fn parse_block(&mut self) -> Result<Vec<Stmt<'a>>> {
         let mut block = Vec::new();
         while !self.is_eof() && self.peek()?.kind != TokenKind::RBrace {
-            block.push(self.parse_exp()?);
+            block.push(self.parse_stmt()?);
         }
         Ok(block)
+    }
+
+    fn parse_stmt(&mut self) -> Result<Stmt<'a>> {
+        if self.peek()?.kind == TokenKind::Let {
+            self.parse_let()
+        } else {
+            Ok(Stmt::Exp(self.parse_exp()?))
+        }
+    }
+
+    fn parse_let(&mut self) -> Result<Stmt<'a>> {
+        self.consume(TokenKind::Let)?;
+        let var = self.consume(TokenKind::Var)?;
+        let exp = self.parse_exp()?;
+        Ok(Stmt::Let(var.as_str(), Box::new(exp)))
     }
 
     fn parse_exp(&mut self) -> Result<Exp<'a>> {
         let token = self.peek()?;
         let exp = match token.kind {
             TokenKind::Fn => self.parse_fn(),
-            TokenKind::Let => self.parse_let(),
-            TokenKind::Num => self.parse_num(),
-            TokenKind::String => self.parse_string(),
+            TokenKind::Literal => self.parse_literal(),
             TokenKind::Var => self.parse_var(),
-            TokenKind::LParen | TokenKind::RParen | TokenKind::LBrace | TokenKind::RBrace => {
+            TokenKind::LParen
+            | TokenKind::RParen
+            | TokenKind::LBrace
+            | TokenKind::RBrace
+            | TokenKind::Let => {
                 bail!(token.unexpected())
             }
         }?;
-        if self.peek()?.kind == TokenKind::LParen {
+        if !self.is_eof() && self.peek()?.kind == TokenKind::LParen {
             self.parse_call(exp)
         } else {
             Ok(exp)
@@ -115,7 +111,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fn(&mut self) -> Result<Exp<'a>> {
-        let location = self.consume(TokenKind::Fn)?.location;
+        self.consume(TokenKind::Fn)?;
 
         let mut name = None;
         let maybe_var = self.peek()?;
@@ -130,54 +126,44 @@ impl<'a> Parser<'a> {
         }
         self.consume(TokenKind::RParen)?;
 
-        let mut body = Vec::new();
         if self.peek()?.kind == TokenKind::LBrace {
             self.consume(TokenKind::LBrace)?;
-            while self.peek()?.kind != TokenKind::RBrace {
-                body.push(self.parse_exp()?);
-            }
+            let mut body = self.parse_block()?;
             self.consume(TokenKind::RBrace)?;
+
+            if let Some(Stmt::Exp(_)) = body.last() {
+                let Some(Stmt::Exp(res)) = body.pop() else {
+                    unreachable!()
+                };
+                Ok(Exp::Fn(name, params, body, Box::new(res)))
+            } else {
+                Ok(Exp::Fn(name, params, body, Box::new(Exp::Var("nil"))))
+            }
         } else {
-            body.push(self.parse_exp()?);
+            let res = self.parse_exp()?;
+            Ok(Exp::Fn(name, params, Vec::new(), Box::new(res)))
         }
-
-        Ok(Exp::new(ExpKind::Fn(name, params, body), location))
     }
 
-    fn parse_let(&mut self) -> Result<Exp<'a>> {
-        let location = self.consume(TokenKind::Let)?.location;
-        let var = self.consume(TokenKind::Var)?;
-        let exp = self.parse_exp()?;
-        Ok(Exp::new(
-            ExpKind::Let(var.as_str(), Box::new(exp)),
-            location,
-        ))
-    }
-
-    fn parse_num(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::Num)?;
-        Ok(Exp::new(ExpKind::Num(token.as_str()), token.location))
-    }
-
-    fn parse_string(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::String)?;
-        Ok(Exp::new(ExpKind::String(token.as_str()), token.location))
+    fn parse_literal(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::Literal)?;
+        Ok(Exp::Literal(token.as_str()))
     }
 
     fn parse_var(&mut self) -> Result<Exp<'a>> {
         let token = self.consume(TokenKind::Var)?;
-        Ok(Exp::new(ExpKind::Var(token.as_str()), token.location))
+        Ok(Exp::Var(token.as_str()))
     }
 
     fn parse_call(&mut self, function: Exp<'a>) -> Result<Exp<'a>> {
-        let location = self.consume(TokenKind::LParen)?.location;
+        self.consume(TokenKind::LParen)?;
         let mut args = Vec::new();
         while self.peek()?.kind != TokenKind::RParen {
             args.push(self.parse_exp()?);
         }
         self.consume(TokenKind::RParen)?;
 
-        let exp = Exp::new(ExpKind::Call(Box::new(function), args), location);
+        let exp = Exp::Call(Box::new(function), args);
 
         if !self.is_eof() && self.peek()?.kind == TokenKind::LParen {
             self.parse_call(exp)

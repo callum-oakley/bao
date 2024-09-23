@@ -1,3 +1,5 @@
 fn true(ifTrue ifFalse) ifTrue()
-
 fn false(ifTrue ifFalse) ifFalse()
+
+fn nil(ifNil ifCons) ifNil()
+fn cons(a b) fn(ifNil ifCons) ifCons(a b)

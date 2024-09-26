@@ -1,79 +1,104 @@
-import { bold, red } from "jsr:@std/fmt@^1.0.2/colors";
+// IO
 
-function res(res) {
-    return { res };
-}
+const stdinReader = Deno.stdin.readable.getReader();
+const stdoutWriter = Deno.stdout.writable.getWriter();
+const stderrWriter = Deno.stderr.writable.getWriter();
 
-function tail(f, ...args) {
-    return { tail: true, f, args };
-}
+let stdinChunk;
 
-function call(f, ...args) {
-    try {
-        let x = f(...args);
-        while (x.tail) {
-            x = x.f(...x.args);
+async function $read$E() {
+    if (!stdinChunk || stdinChunk.length == 0) {
+        const res = await stdinReader.read();
+        if (res.done) {
+            return $nil;
         }
-        return x.res;
-    } catch {
-        // TODO expose some way to do user defined errors? Maybe ewrite! and exit! functions?
-        console.error(`${bold(red("error"))}`);
-        Deno.exit(1);
+        stdinChunk = res.value;
     }
+    const c = stdinChunk[0];
+    stdinChunk = stdinChunk.subarray(1);
+    return await $some(c);
 }
 
-// TODO read!
-
-// TODO replace with write!
-function $print$E(x) {
-    console.log(x);
-    return res($nil);
+async function $write$E(c) {
+    await stdoutWriter.write(new Uint8Array([c]));
 }
+
+async function $ewrite$E(c) {
+    await stderrWriter.write(new Uint8Array(c));
+}
+
+// Unary integer functions
+
+function $inc(a) {
+    return a + 1;
+}
+
+function $dec(a) {
+    return a - 1;
+}
+
+function $neg(a) {
+    return -a;
+}
+
+function $zero$Q(a) {
+    return a === 0 ? $true : $false;
+}
+
+function $pos$Q(a) {
+    return a > 0 ? $true : $false;
+}
+
+function $neg$Q(a) {
+    return a < 0 ? $true : $false;
+}
+
+// Binary integer functions
 
 function $eq$Q(a, b) {
-    return res(a === b ? $true : $false);
+    return a === b ? $true : $false;
 }
 
 function $neq$Q(a, b) {
-    return res(a !== b ? $true : $false);
+    return a !== b ? $true : $false;
 }
 
 function $lt$Q(a, b) {
-    return res(a < b ? $true : $false);
+    return a < b ? $true : $false;
 }
 
 function $gt$Q(a, b) {
-    return res(a > b ? $true : $false);
+    return a > b ? $true : $false;
 }
 
 function $lte$Q(a, b) {
-    return res(a <= b ? $true : $false);
+    return a <= b ? $true : $false;
 }
 
 function $gte$Q(a, b) {
-    return res(a >= b ? $true : $false);
+    return a >= b ? $true : $false;
 }
 
 function $add(a, b) {
-    return res(a + b);
+    return a + b;
 }
 
 function $sub(a, b) {
-    return res(a - b);
+    return a - b;
 }
 
 function $mul(a, b) {
-    return res(a * b);
+    return a * b;
 }
 
 function $div(a, b) {
-    return res(a / b);
+    return a / b;
 }
 
 function $rem(a, b) {
-    return res(a % b);
+    return a % b;
 }
 
 function $exp(a, b) {
-    return res(a ** b);
+    return a ** b;
 }

@@ -30,11 +30,11 @@ async function $ewrite$E(c) {
 // Unary integer functions
 
 function $inc(a) {
-    return a + 1;
+    return a + 1n;
 }
 
 function $dec(a) {
-    return a - 1;
+    return a - 1n;
 }
 
 function $neg(a) {
@@ -42,15 +42,15 @@ function $neg(a) {
 }
 
 function $zero$Q(a) {
-    return a === 0 ? $true : $false;
+    return a === 0n ? $true : $false;
 }
 
 function $pos$Q(a) {
-    return a > 0 ? $true : $false;
+    return a > 0n ? $true : $false;
 }
 
 function $neg$Q(a) {
-    return a < 0 ? $true : $false;
+    return a < 0n ? $true : $false;
 }
 
 // Binary integer functions

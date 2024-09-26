@@ -29,7 +29,7 @@ fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
     match exp {
         Exp::Call(exp, args) => write_call(w, exp, args),
         Exp::Fn(name, params, body, res) => write_fn(w, *name, params, body, res),
-        Exp::Literal(n) => write_literal(w, n),
+        Exp::Int(n) => write_int(w, n),
         Exp::Var(name) => write_var(w, name),
     }?;
     Ok(())
@@ -87,8 +87,8 @@ fn write_let(w: &mut impl io::Write, name: &str, body: &Exp) -> Result<()> {
     Ok(())
 }
 
-fn write_literal(w: &mut impl io::Write, literal: &str) -> Result<()> {
-    write!(w, "{}", literal)?;
+fn write_int(w: &mut impl io::Write, int: &str) -> Result<()> {
+    write!(w, "{}n", int)?;
     Ok(())
 }
 

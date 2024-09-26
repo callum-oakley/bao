@@ -8,7 +8,7 @@ use crate::tokenizer::{Token, TokenKind, Tokens};
 pub enum Exp<'a> {
     Call(Box<Exp<'a>>, Vec<Exp<'a>>),
     Fn(Option<&'a str>, Vec<&'a str>, Vec<Stmt<'a>>, Box<Exp<'a>>),
-    Literal(&'a str),
+    Int(&'a str),
     Var(&'a str),
 }
 
@@ -93,7 +93,7 @@ impl<'a> Parser<'a> {
         let token = self.peek()?;
         let exp = match token.kind {
             TokenKind::Fn => self.parse_fn(),
-            TokenKind::Literal => self.parse_literal(),
+            TokenKind::Int => self.parse_int(),
             TokenKind::Var => self.parse_var(),
             TokenKind::LParen
             | TokenKind::RParen
@@ -145,9 +145,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_literal(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::Literal)?;
-        Ok(Exp::Literal(token.as_str()))
+    fn parse_int(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::Int)?;
+        Ok(Exp::Int(token.as_str()))
     }
 
     fn parse_var(&mut self) -> Result<Exp<'a>> {

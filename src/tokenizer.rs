@@ -11,9 +11,9 @@ pub struct Token<'a> {
 #[derive(PartialEq, Debug)]
 pub enum TokenKind {
     Fn,
+    Int,
     LBrace,
     Let,
-    Literal,
     LParen,
     RBrace,
     RParen,
@@ -150,18 +150,18 @@ impl<'a> Tokens<'a> {
                 self.next()?;
             }
         }
-        Ok(self.token(TokenKind::Literal, start, self.offset))
+        todo!()
     }
 
-    fn tokenize_num(&mut self) -> Result<Token<'a>> {
+    fn tokenize_int(&mut self) -> Result<Token<'a>> {
         let start = self.offset;
         if self.peek()? == b'-' {
             self.next()?;
         }
-        while self.peek()?.is_ascii_digit() || self.peek()? == b'.' {
+        while self.peek()?.is_ascii_digit() {
             self.next()?;
         }
-        Ok(self.token(TokenKind::Literal, start, self.offset))
+        Ok(self.token(TokenKind::Int, start, self.offset))
     }
 
     fn tokenize_word(&mut self) -> Result<Token<'a>> {
@@ -193,7 +193,7 @@ impl<'a> Iterator for Tokens<'a> {
                 b'}' => self.tokenize_punctuation(b'}', TokenKind::RBrace),
                 b')' => self.tokenize_punctuation(b')', TokenKind::RParen),
                 b'"' => self.tokenize_string(),
-                _ if c == b'-' || c.is_ascii_digit() => self.tokenize_num(),
+                _ if c == b'-' || c.is_ascii_digit() => self.tokenize_int(),
                 _ if is_word_char(c) => self.tokenize_word(),
                 _ => {
                     let (line, col) = offset_to_line_and_col(self.src, self.offset);

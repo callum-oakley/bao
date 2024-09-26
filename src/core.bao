@@ -1,6 +1,45 @@
 fn true(ifTrue ifFalse) ifTrue()
+
 fn false(ifTrue ifFalse) ifFalse()
 
 fn nil(ifNil) ifNil()
+
 fn some(a) fn(ifNil ifSome) ifSome(a)
-fn cons(a b) fn(ifNil ifCons) ifCons(a b)
+
+fn cons(head tail) fn(ifNil ifCons) ifCons(head tail)
+
+fn map(list f) {
+    list(
+        fn() nil
+        fn(head tail) cons(f(head) map(tail f))
+    )
+}
+
+fn writeStr!(s) map(s write!)
+
+fn ewriteStr!(s) map(s ewrite!)
+
+fn writeln!(s) {
+    map(s write!)
+    write!('\n')
+}
+
+fn ewriteln!(s) {
+    map(s ewrite!)
+    write!('\n')
+}
+
+fn intToStr(n) {
+    fn go(s n) {
+        let s* cons(add(rem(n 10) '0') s)
+        let n* div(n 10)
+        zero?(n*)(
+            fn() s*
+            fn() go(s* n*)
+        )
+    }
+    neg?(n)(
+        fn() cons('-' go(nil neg(n)))
+        fn() go(nil n)
+    )
+}

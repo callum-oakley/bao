@@ -20,11 +20,11 @@ async function $read$E() {
 }
 
 async function $write$E(c) {
-    await stdoutWriter.write(new Uint8Array([c]));
+    await stdoutWriter.write(new Uint8Array([Number(c)]));
 }
 
 async function $ewrite$E(c) {
-    await stderrWriter.write(new Uint8Array(c));
+    await stderrWriter.write(new Uint8Array([Number(c)]));
 }
 
 // Unary integer functions

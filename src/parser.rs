@@ -1,14 +1,14 @@
 use std::{iter::Peekable, path::Path};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 
-use crate::tokenizer::{Token, TokenKind, Tokens};
+use crate::tokenizer::{Location, Token, TokenKind, Tokens};
 
 #[derive(Debug)]
 pub enum Exp<'a> {
     Call(Box<Exp<'a>>, Vec<Exp<'a>>),
     Fn(Option<&'a str>, Vec<&'a str>, Vec<Stmt<'a>>, Box<Exp<'a>>),
-    Int(&'a str),
+    Int(String),
     Var(&'a str),
 }
 
@@ -93,8 +93,10 @@ impl<'a> Parser<'a> {
         let token = self.peek()?;
         let exp = match token.kind {
             TokenKind::Fn => self.parse_fn(),
-            TokenKind::Int => self.parse_int(),
             TokenKind::Var => self.parse_var(),
+            TokenKind::Int => self.parse_int(),
+            TokenKind::Char => self.parse_char(),
+            TokenKind::String => self.parse_string(),
             TokenKind::LParen
             | TokenKind::RParen
             | TokenKind::LBrace
@@ -145,14 +147,49 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_int(&mut self) -> Result<Exp<'a>> {
-        let token = self.consume(TokenKind::Int)?;
-        Ok(Exp::Int(token.as_str()))
-    }
-
     fn parse_var(&mut self) -> Result<Exp<'a>> {
         let token = self.consume(TokenKind::Var)?;
         Ok(Exp::Var(token.as_str()))
+    }
+
+    fn parse_int(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::Int)?;
+        Ok(Exp::Int(token.as_str().to_owned()))
+    }
+
+    fn parse_char(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::Char)?;
+        let bytes = token.as_bytes();
+        ensure!(
+            bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'',
+            token.location.error(anyhow!("malformed char")),
+        );
+        let bytes = &bytes[1..bytes.len() - 1];
+        let bytes = unescape(token.location, bytes)?;
+        ensure!(
+            bytes.len() == 1,
+            token.location.error(anyhow!("malformed char")),
+        );
+        Ok(Exp::Int(bytes[0].to_string()))
+    }
+
+    fn parse_string(&mut self) -> Result<Exp<'a>> {
+        let token = self.consume(TokenKind::String)?;
+        let bytes = token.as_bytes();
+        ensure!(
+            bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"',
+            token.location.error(anyhow!("malformed string"))
+        );
+        let bytes = &bytes[1..bytes.len() - 1];
+        let bytes = unescape(token.location, bytes)?;
+        let mut exp = Exp::Var("nil");
+        for byte in bytes.iter().rev() {
+            exp = Exp::Call(
+                Box::new(Exp::Var("cons")),
+                vec![Exp::Int(byte.to_string()), exp],
+            );
+        }
+        Ok(exp)
     }
 
     fn parse_call(&mut self, function: Exp<'a>) -> Result<Exp<'a>> {
@@ -171,4 +208,21 @@ impl<'a> Parser<'a> {
             Ok(exp)
         }
     }
+}
+
+fn unescape(location: Location, bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut bytes = bytes.iter();
+    let mut res = Vec::new();
+    while let Some(byte) = bytes.next() {
+        res.push(match byte {
+            b'\\' => match bytes.next() {
+                Some(b't') => b'\t',
+                Some(b'n') => b'\n',
+                Some(c) => *c,
+                _ => bail!(location.error(anyhow!("malformed string"))),
+            },
+            c => *c,
+        })
+    }
+    Ok(res)
 }

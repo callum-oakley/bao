@@ -56,11 +56,13 @@ fn write_fn(
 ) -> Result<()> {
     write!(w, "async function")?;
     if let Some(name) = name {
-        write!(w, " ${}", name)?;
+        write!(w, " ")?;
+        write_var(w, name)?;
     }
     write!(w, "(")?;
     for param in params {
-        write!(w, "${},", param)?;
+        write_var(w, param)?;
+        write!(w, ",")?;
     }
     write!(w, "){{")?;
     for stmt in body {
@@ -82,7 +84,9 @@ fn write_stmt(w: &mut impl io::Write, stmt: &Stmt) -> Result<()> {
 }
 
 fn write_let(w: &mut impl io::Write, name: &str, body: &Exp) -> Result<()> {
-    write!(w, "const ${} = ", name)?;
+    write!(w, "const ")?;
+    write_var(w, name)?;
+    write!(w, " = ")?;
     write_exp(w, body)?;
     Ok(())
 }

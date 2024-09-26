@@ -10,6 +10,7 @@ pub struct Token<'a> {
 
 #[derive(PartialEq, Debug)]
 pub enum TokenKind {
+    Char,
     Fn,
     Int,
     LBrace,
@@ -17,6 +18,7 @@ pub enum TokenKind {
     LParen,
     RBrace,
     RParen,
+    String,
     Var,
 }
 
@@ -45,6 +47,10 @@ impl<'a> std::fmt::Debug for Location<'a> {
 impl<'a> Token<'a> {
     pub fn as_str(&self) -> &'a str {
         &self.location.src[self.location.start..self.location.end]
+    }
+
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.location.src[self.location.start..self.location.end].as_bytes()
     }
 
     pub fn unexpected(&self) -> Error {
@@ -138,19 +144,19 @@ impl<'a> Tokens<'a> {
         Ok(self.token(kind, start, self.offset))
     }
 
-    fn tokenize_string(&mut self) -> Result<Token<'a>> {
+    fn tokenize_quoted(&mut self, quote: u8, kind: TokenKind) -> Result<Token<'a>> {
         let start = self.offset;
-        self.consume(b'"')?;
+        self.consume(quote)?;
         loop {
             let c = self.next()?;
-            if c == b'"' {
+            if c == quote {
                 break;
             }
             if c == b'\\' {
                 self.next()?;
             }
         }
-        todo!()
+        Ok(self.token(kind, start, self.offset))
     }
 
     fn tokenize_int(&mut self) -> Result<Token<'a>> {
@@ -192,7 +198,8 @@ impl<'a> Iterator for Tokens<'a> {
                 b'(' => self.tokenize_punctuation(b'(', TokenKind::LParen),
                 b'}' => self.tokenize_punctuation(b'}', TokenKind::RBrace),
                 b')' => self.tokenize_punctuation(b')', TokenKind::RParen),
-                b'"' => self.tokenize_string(),
+                b'\'' => self.tokenize_quoted(b'\'', TokenKind::Char),
+                b'"' => self.tokenize_quoted(b'"', TokenKind::String),
                 _ if c == b'-' || c.is_ascii_digit() => self.tokenize_int(),
                 _ if is_word_char(c) => self.tokenize_word(),
                 _ => {

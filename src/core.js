@@ -1,113 +1,109 @@
 // Unary integer functions
 
 function $inc(a) {
-    return res(a + 1n);
+    return a + 1n;
 }
 
 function $dec(a) {
-    return res(a - 1n);
+    return a - 1n;
 }
 
 function $neg(a) {
-    return res(-a);
+    return -a;
 }
 
 function $zero$Q(a) {
-    return res(a === 0n ? $true : $false);
+    return a === 0n ? $true : $false;
 }
 
 function $pos$Q(a) {
-    return res(a > 0n ? $true : $false);
+    return a > 0n ? $true : $false;
 }
 
 function $neg$Q(a) {
-    return res(a < 0n ? $true : $false);
+    return a < 0n ? $true : $false;
 }
 
 // Binary integer functions
 
 function $eq$Q(a, b) {
-    return res(a === b ? $true : $false);
+    return a === b ? $true : $false;
 }
 
 function $neq$Q(a, b) {
-    return res(a !== b ? $true : $false);
+    return a !== b ? $true : $false;
 }
 
 function $lt$Q(a, b) {
-    return res(a < b ? $true : $false);
+    return a < b ? $true : $false;
 }
 
 function $gt$Q(a, b) {
-    return res(a > b ? $true : $false);
+    return a > b ? $true : $false;
 }
 
 function $lte$Q(a, b) {
-    return res(a <= b ? $true : $false);
+    return a <= b ? $true : $false;
 }
 
 function $gte$Q(a, b) {
-    return res(a >= b ? $true : $false);
+    return a >= b ? $true : $false;
 }
 
 function $add(a, b) {
-    return res(a + b);
+    return a + b;
 }
 
 function $sub(a, b) {
-    return res(a - b);
+    return a - b;
 }
 
 function $mul(a, b) {
-    return res(a * b);
+    return a * b;
 }
 
 function $div(a, b) {
-    return res(a / b);
+    return a / b;
 }
 
 function $rem(a, b) {
-    return res(a % b);
+    return a % b;
 }
 
 function $exp(a, b) {
-    return res(a ** b);
+    return a ** b;
 }
 
 // Runtime
 
-function res(res) {
-    return { res };
-}
-
-function tail(f, ...args) {
-    return { f, args };
+function tailCall(f, ...args) {
+    return { tailCall: true, f, args };
 }
 
 function call(f, ...args) {
     let x = f(...args);
-    while (x.f) {
+    while (x.tailCall) {
         x = x.f(...x.args);
     }
-    return x.res;
+    return x;
 }
 
 async function readStdin() {
     // TODO
-    return res($nil);
+    return $nil;
 }
 
 async function writeStdout(output) {
     const bytes = [];
     call(function go(output) {
-        return tail(
+        return tailCall(
             output,
             function () {
-                return res($nil);
+                return $nil;
             },
-            function (first, rest) {
-                bytes.push(Number(first));
-                return tail(go, rest);
+            function (head, tail) {
+                bytes.push(Number(head));
+                return tailCall(go, tail);
             },
         );
     }, output);

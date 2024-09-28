@@ -29,7 +29,7 @@ fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
 
 fn write_call(w: &mut impl io::Write, exp: &Exp, args: &[Exp], tail: bool) -> Result<()> {
     if tail {
-        write!(w, "tail(")?;
+        write!(w, "tailCall(")?;
     } else {
         write!(w, "call(")?;
     }
@@ -73,13 +73,10 @@ fn write_fn(
 
 fn write_res(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
     if let Exp::Call(f, args) = exp {
-        write_call(w, f, args, true)?;
+        write_call(w, f, args, true)
     } else {
-        write!(w, "res(")?;
-        write_exp(w, exp)?;
-        write!(w, ")")?;
+        write_exp(w, exp)
     }
-    Ok(())
 }
 
 fn write_stmt(w: &mut impl io::Write, stmt: &Stmt) -> Result<()> {

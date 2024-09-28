@@ -19,7 +19,7 @@ pub fn compile(w: &mut impl io::Write, path: &Path) -> Result<()> {
 
 fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
     match exp {
-        Exp::Call(exp, args) => write_call(w, exp, args),
+        Exp::Call(exp, args) => write_call(w, exp, args, false),
         Exp::Fn(name, params, body, res) => write_fn(w, *name, params, body, res),
         Exp::Int(n) => write_int(w, n),
         Exp::Var(name) => write_var(w, name),
@@ -27,8 +27,12 @@ fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
     Ok(())
 }
 
-fn write_call(w: &mut impl io::Write, exp: &Exp, args: &[Exp]) -> Result<()> {
-    write!(w, "call(")?;
+fn write_call(w: &mut impl io::Write, exp: &Exp, args: &[Exp], tail: bool) -> Result<()> {
+    if tail {
+        write!(w, "tail(")?;
+    } else {
+        write!(w, "call(")?;
+    }
     write_exp(w, exp)?;
     for arg in args {
         write!(w, ",")?;
@@ -67,11 +71,14 @@ fn write_fn(
     Ok(())
 }
 
-// TODO tail calls
 fn write_res(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
-    write!(w, "res(")?;
-    write_exp(w, exp)?;
-    write!(w, ")")?;
+    if let Exp::Call(f, args) = exp {
+        write_call(w, f, args, true)?;
+    } else {
+        write!(w, "res(")?;
+        write_exp(w, exp)?;
+        write!(w, ")")?;
+    }
     Ok(())
 }
 

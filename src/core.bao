@@ -8,10 +8,29 @@ fn some(a) fn(ifNil ifSome) ifSome(a)
 
 fn cons(head tail) fn(ifNil ifCons) ifCons(head tail)
 
+fn head(list) list(fn() nil fn(head tail) head)
+
+fn tail(list) list(fn() nil fn(head tail) tail)
+
 fn map(list f) {
     list(
         fn() nil
         fn(head tail) cons(f(head) map(tail f))
+    )
+}
+
+fn fold(list acc f) {
+    list(
+        fn() acc
+        fn(head tail) fold(tail f(acc head) f)
+    )
+}
+
+fn strToInt(s) {
+    fn go(s) fold(s 0 fn(acc d) add(mul(acc 10) sub(d '0')))
+    eq?(head(s) '-')(
+        fn() neg(go(tail(s)))
+        fn() go(s)
     )
 }
 

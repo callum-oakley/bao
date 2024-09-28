@@ -89,8 +89,21 @@ function call(f, ...args) {
 }
 
 async function readStdin() {
-    // TODO
-    return $nil;
+    const bytes = [];
+    for await (const chunk of Deno.stdin.readable) {
+        bytes.push(...chunk);
+    }
+    return call(
+        function go(res, i) {
+            if (i < 0) {
+                return res;
+            } else {
+                return tailCall(go, call($cons, BigInt(bytes[i]), res), i - 1);
+            }
+        },
+        $nil,
+        bytes.length - 1,
+    );
 }
 
 async function writeStdout(output) {

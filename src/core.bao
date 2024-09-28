@@ -26,6 +26,15 @@ fn fold(list acc f) {
     )
 }
 
+fn unfold(state f) {
+    fn go(acc state) {
+        f(state)(
+            fn() acc
+            fn(value state*) go(cons(value acc) state*)
+        )
+    }(nil state)
+}
+
 fn strToInt(s) {
     fn go(s) fold(s 0 fn(acc d) add(mul(acc 10) sub(d '0')))
     eq?(head(s) '-')(
@@ -35,16 +44,17 @@ fn strToInt(s) {
 }
 
 fn intToStr(n) {
-    fn go(s n) {
-        let s* cons(add(rem(n 10) '0') s)
-        let n* div(n 10)
-        zero?(n*)(
-            fn() s*
-            fn() go(s* n*)
+    fn posIntToStr(n) unfold(n fn(n) {
+        zero?(n)(
+            fn() nil
+            fn() cons(add(rem(n 10) '0') div(n 10))
         )
-    }
-    neg?(n)(
-        fn() cons('-' go(nil neg(n)))
-        fn() go(nil n)
+    })
+    zero?(n)(
+        fn() "0"
+        fn() neg?(n)(
+            fn() cons('-' posIntToStr(neg(n)))
+            fn() posIntToStr(n)
+        )
     )
 }

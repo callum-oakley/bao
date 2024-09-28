@@ -15,20 +15,6 @@ fn map(list f) {
     )
 }
 
-fn writeStr!(s) map(s write!)
-
-fn ewriteStr!(s) map(s ewrite!)
-
-fn writeln!(s) {
-    map(s write!)
-    write!('\n')
-}
-
-fn ewriteln!(s) {
-    map(s ewrite!)
-    write!('\n')
-}
-
 fn intToStr(n) {
     fn go(s n) {
         let s* cons(add(rem(n 10) '0') s)

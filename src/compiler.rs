@@ -5,23 +5,15 @@ use anyhow::Result;
 use crate::parser::{self, Exp, Stmt};
 
 pub fn compile(w: &mut impl io::Write, path: &Path) -> Result<()> {
-    writeln!(w, "{}", include_str!("core.js"))?;
+    for stmt in parser::parse(path, &fs::read_to_string(path)?)? {
+        write_stmt(w, &stmt)?;
+        writeln!(w, ";\n")?;
+    }
     for stmt in parser::parse(Path::new("core.bao"), include_str!("core.bao"))? {
         write_stmt(w, &stmt)?;
         writeln!(w, ";\n")?;
     }
-    write_exp(
-        w,
-        &Exp::Call(
-            Box::new(Exp::Fn(
-                None,
-                Vec::new(),
-                parser::parse(path, &fs::read_to_string(path)?)?,
-                Box::new(Exp::Var("nil")),
-            )),
-            Vec::new(),
-        ),
-    )?;
+    writeln!(w, "{}", include_str!("core.js"))?;
     Ok(())
 }
 
@@ -36,14 +28,13 @@ fn write_exp(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
 }
 
 fn write_call(w: &mut impl io::Write, exp: &Exp, args: &[Exp]) -> Result<()> {
-    write!(w, "(await ")?;
+    write!(w, "call(")?;
     write_exp(w, exp)?;
-    write!(w, "(")?;
     for arg in args {
-        write_exp(w, arg)?;
         write!(w, ",")?;
+        write_exp(w, arg)?;
     }
-    write!(w, "))")?;
+    write!(w, ")")?;
     Ok(())
 }
 
@@ -54,7 +45,7 @@ fn write_fn(
     body: &[Stmt],
     res: &Exp,
 ) -> Result<()> {
-    write!(w, "async function")?;
+    write!(w, "function")?;
     if let Some(name) = name {
         write!(w, " ")?;
         write_var(w, name)?;
@@ -70,9 +61,17 @@ fn write_fn(
         write!(w, ";")?;
     }
     write!(w, "return ")?;
-    write_exp(w, res)?;
+    write_res(w, res)?;
     write!(w, ";")?;
     write!(w, "}}")?;
+    Ok(())
+}
+
+// TODO tail calls
+fn write_res(w: &mut impl io::Write, exp: &Exp) -> Result<()> {
+    write!(w, "res(")?;
+    write_exp(w, exp)?;
+    write!(w, ")")?;
     Ok(())
 }
 
